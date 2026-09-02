@@ -49,34 +49,32 @@ void HTU21D::begin(TwoWire &wirePort)
 //Given a command, reads a given 2-byte value with CRC from the HTU21D
 uint16_t HTU21D::readValue(byte cmd)
 {
-  //Request a humidity reading
-  _i2cPort->beginTransmission(HTU21D_ADDRESS);
-  _i2cPort->write(cmd); //Measure value (prefer no hold!)
-  _i2cPort->endTransmission();
-  
-  //Hang out while measurement is taken. datasheet says 50ms, practice may call for more
-  bool validResult;
-  byte counter;
-  for (counter = 0, validResult = 0 ; counter < MAX_COUNTER && !validResult ; counter++)
-  {
-    delay(DELAY_INTERVAL);
+    _i2cPort->beginTransmission(HTU21D_ADDRESS);
+    _i2cPort->write(cmd);
+    _i2cPort->endTransmission();
 
-    //Comes back in three bytes, data(MSB) / data(LSB) / Checksum
-    validResult = (3 == _i2cPort->requestFrom(HTU21D_ADDRESS, 3));
-  }
+    // HTU21D max conversion times:
+    // Temperature (14-bit): ~50 ms
+    // Humidity (12-bit):    ~16 ms
 
-  if (!validResult) return (ERROR_I2C_TIMEOUT); //Error out
+    if (cmd == TRIGGER_TEMP_MEASURE_NOHOLD)
+        delay(55);
+    else
+        delay(20);
 
-  byte msb, lsb, checksum;
-  msb = _i2cPort->read();
-  lsb = _i2cPort->read();
-  checksum = _i2cPort->read();
+    if (_i2cPort->requestFrom(HTU21D_ADDRESS, (uint8_t)3) != 3)
+        return ERROR_I2C_TIMEOUT;
 
-  uint16_t rawValue = ((uint16_t) msb << 8) | (uint16_t) lsb;
+    uint8_t msb = _i2cPort->read();
+    uint8_t lsb = _i2cPort->read();
+    uint8_t crc = _i2cPort->read();
 
-  if (checkCRC(rawValue, checksum) != 0) return (ERROR_BAD_CRC); //Error out
+    uint16_t raw = ((uint16_t)msb << 8) | lsb;
 
-  return rawValue & 0xFFFC; // Zero out the status bits
+    if (checkCRC(raw, crc))
+        return ERROR_BAD_CRC;
+
+    return raw & 0xFFFC;
 }
 
 //Read the humidity
